@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>TileViz AR</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@700;800&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+:root{
+  --amber:#f5a623;--amber-dim:rgba(245,166,35,0.25);
+  --bg:#0c0c0e;--surface:rgba(16,16,20,0.93);
+  --border:rgba(255,255,255,0.09);--text:#f0ece6;--muted:rgba(240,236,230,0.4);
+  --green:#4ade80;--red:#f87171;
+}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;font-size:14px}
+#app{display:flex;flex-direction:column;height:100%;position:relative}
+
+/* ── Viewport ── */
+#vp{position:relative;flex:1;overflow:hidden;background:#000;min-height:0}
+#vid{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(1)}
+#cv{position:absolute;inset:0;width:100%;height:100%;touch-action:none;cursor:crosshair}
+
+/* ── HUD ── */
+#hud{position:absolute;top:0;left:0;right:0;z-index:10;padding:14px 18px;display:flex;align-items:center;justify-content:space-between;background:linear-gradient(to bottom,rgba(0,0,0,.65) 0%,transparent 100%)}
+.logo{font-family:'Syne',sans-serif;font-size:20px;font-weight:800;letter-spacing:-1px}
+.logo em{color:var(--amber);font-style:normal}
+.area-badge{text-align:center;line-height:1.2}
+.area-badge .num{display:block;font-size:20px;font-weight:500;color:var(--amber)}
+.area-badge .lbl{font-size:10px;color:var(--muted);letter-spacing:.5px}
+
+/* ── Guide ── */
+#guide{position:absolute;inset:0;z-index:8;display:flex;align-items:center;justify-content:center;pointer-events:none;transition:opacity .4s}
+.guide-box{background:rgba(0,0,0,.55);border:1px solid var(--border);backdrop-filter:blur(14px);border-radius:14px;padding:22px 28px;text-align:center;max-width:240px}
+.guide-box h3{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;margin-bottom:8px;color:var(--amber)}
+.guide-box p{font-size:11px;color:var(--muted);line-height:1.6}
+.corner-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:14px;font-size:10px;color:var(--muted)}
+.corner-grid span{background:rgba(255,255,255,.06);border:1px solid var(--border);border-radius:6px;padding:4px 8px;text-align:center}
+.corner-grid span.hi{color:var(--amber);border-color:var(--amber-dim)}
+
+/* ── Status pill ── */
+#status{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);z-index:10;white-space:nowrap}
+#status-inner{display:inline-flex;align-items:center;gap:7px;background:var(--surface);border:1px solid var(--border);backdrop-filter:blur(12px);border-radius:100px;padding:7px 14px;font-size:11px}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--amber);animation:pulse 1.8s ease-in-out infinite;flex-shrink:0}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.75)}}
+.dot.green{background:var(--green);animation:none}
+
+/* ── Bottom panel ── */
+#panel{background:var(--surface);border-top:1px solid var(--border);backdrop-filter:blur(20px);padding:14px 0 env(safe-area-inset-bottom,12px);flex-shrink:0}
+.panel-row{display:flex;align-items:center;justify-content:space-between;padding:0 16px 10px}
+.panel-title{font-size:9px;text-transform:uppercase;letter-spacing:2px;color:var(--muted)}
+.acts{display:flex;gap:7px}
+.btn{height:30px;min-width:30px;padding:0 10px;border-radius:7px;border:1px solid var(--border);background:rgba(255,255,255,.04);color:var(--text);font-family:'DM Mono',monospace;font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .12s;gap:5px}
+.btn:active{transform:scale(.92);background:rgba(255,255,255,.09)}
+.btn.danger{border-color:rgba(248,113,113,.3);color:var(--red)}
+.btn.primary{border-color:var(--amber-dim);color:var(--amber)}
+
+#tiles-row{display:flex;gap:9px;padding:0 16px;overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none}
+#tiles-row::-webkit-scrollbar{display:none}
+.swatch{flex-shrink:0;cursor:pointer;transition:transform .12s}
+.swatch:active{transform:scale(.91)}
+.swatch canvas{display:block;width:60px;height:60px;border-radius:10px;border:2px solid transparent;transition:border-color .18s,box-shadow .18s}
+.swatch.on canvas{border-color:var(--amber);box-shadow:0 0 10px var(--amber-dim)}
+.swatch-lbl{font-size:9px;text-align:center;margin-top:4px;color:var(--muted);width:60px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.swatch.on .swatch-lbl{color:var(--amber)}
+
+.ctrl-row{display:flex;align-items:center;gap:10px;padding:10px 16px 0}
+.ctrl-lbl{font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);white-space:nowrap}
+input[type=range]{flex:1;-webkit-appearance:none;height:2px;background:var(--border);border-radius:2px;outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;border-radius:50%;background:var(--amber);cursor:pointer;box-shadow:0 0 8px var(--amber-dim)}
+.val-lbl{font-size:10px;color:var(--muted);min-width:30px;text-align:right}
+
+/* ── No-camera ── */
+#nocam{position:absolute;inset:0;z-index:20;display:none;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:40px;background:rgba(12,12,14,.97)}
+#nocam svg{opacity:.35}
+#nocam h2{font-family:'Syne',sans-serif;font-size:17px;font-weight:700;text-align:center}
+#nocam p{font-size:12px;color:var(--muted);text-align:center;line-height:1.7;max-width:260px}
+.big-btn{background:var(--amber);color:#0c0c0e;border:none;border-radius:10px;padding:12px 28px;font-family:'DM Mono',monospace;font-size:13px;font-weight:500;cursor:pointer;transition:opacity .15s}
+.big-btn:active{opacity:.8}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="vp">
+    <video id="vid" autoplay playsinline muted></video>
+    <canvas id="cv"></canvas>
+
+    <div id="guide">
+      <div class="guide-box">
+        <h3>Select Floor Area</h3>
+        <p>Tap 4 corners of the floor area you want to tile</p>
+        <div class="corner-grid">
+          <span class="hi">1 • top-left</span>
+          <span class="hi">2 • top-right</span>
+          <span class="hi">4 • bot-left</span>
+          <span class="hi">3 • bot-right</span>
+        </div>
+      </div>
+    </div>
+
+    <div id="hud">
+      <div class="logo">TILE<em>VIZ</em></div>
+      <div class="area-badge">
+        <span class="num" id="area-num">—</span>
+        <span class="lbl">est. m²</span>
+      </div>
+      <div style="width:70px;text-align:right">
+        <button class="btn primary" onclick="App.toggleCamera()" style="font-size:10px">📷 CAM</button>
+      </div>
+    </div>
+
+    <div id="status">
+      <div id="status-inner">
+        <div class="dot" id="dot"></div>
+        <span id="status-txt">Tap 4 corners to mark floor</span>
+      </div>
+    </div>
+
+    <div id="nocam">
+      <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
+        <rect x="4" y="14" width="48" height="36" rx="6" stroke="#f0ece6" stroke-width="2"/>
+        <circle cx="28" cy="32" r="10" stroke="#f0ece6" stroke-width="2"/>
+        <circle cx="28" cy="32" r="4" fill="#f0ece6"/>
+        <path d="M20 14l4-8h8l4 8" stroke="#f0ece6" stroke-width="2"/>
+      </svg>
+      <h2>Camera Required</h2>
+      <p>TileViz AR needs your camera to overlay tile previews on your floor in real time.</p>
+      <button class="big-btn" onclick="App.startCamera()">Allow Camera Access</button>
+      <button class="btn" onclick="App.demoMode()" style="margin-top:8px">Try Demo (no camera)</button>
+    </div>
+  </div>
+
+  <div id="panel">
+    <div class="panel-row">
+      <span class="panel-title">Tile Collection</span>
+      <div class="acts">
+        <button class="btn danger" onclick="App.reset()" title="Reset selection">✕ Reset</button>
+        <button class="btn" onclick="App.undo()" title="Remove last point">↩ Undo</button>
+      </div>
+    </div>
+    <div id="tiles-row"></div>
+    <div class="ctrl-row">
+      <span class="ctrl-lbl">Opacity</span>
+      <input type="range" id="opSlider" min="15" max="95" value="72" step="1">
+      <span class="val-lbl" id="opVal">72%</span>
+    </div>
+  </div>
+</div>
+
+<script>
+const TILES = [
+  {name:'Carrara Marble', colors:['#f8f4ef','#ede8df'], grout:'#cfc7bd', layout:'grid', cols:6},
+  {name:'Travertine',     colors:['#d4c4a8','#c8b898','#bfad8a'], grout:'#a8947a', layout:'grid', cols:6},
+  {name:'Onyx Black',     colors:['#1c1c1e','#242427','#1a1a1c'], grout:'#0a0a0b', layout:'grid', cols:6},
+  {name:'Slate Grey',     colors:['#6b7280','#555e6a','#4b5563'], grout:'#374151', layout:'grid', cols:8},
+  {name:'Terracotta',     colors:['#c06a40','#b85e36','#ca7248'], grout:'#7a3010', layout:'grid', cols:7},
+  {name:'Cobalt Blue',    colors:['#1e3a8a','#1e40af','#1d4ed8'], grout:'#172554', layout:'grid', cols:7},
+  {name:'Sage Green',     colors:['#166534','#15803d','#14532d'], grout:'#052e16', layout:'grid', cols:8},
+  {name:'Pebble Mosaic',  colors:['#9ca3af','#6b7280','#d1d5db','#4b5563','#e5e7eb'], grout:'#1f2937', layout:'mosaic', cols:14},
+  {name:'Zellige Teal',   colors:['#0d9488','#0f766e','#14b8a6','#115e59','#0e7490'], grout:'#042f2e', layout:'mosaic', cols:14},
+  {name:'Cream Hex',      colors:['#fdf6e3','#f5ead2','#ece0c5'], grout:'#d6cbb5', layout:'hex',    cols:10},
+  {name:'Navy Hex',       colors:['#1e3a8a','#172554','#1d4ed8','#1e40af'], grout:'#0f172a', layout:'hex', cols:10},
+  {name:'Herringbone Oak',colors:['#92400e','#78350f','#a16207'], grout:'#1a0900', layout:'herring',cols:8},
+];
+
+const App = (() => {
+  let corners=[], selTile=0, opacity=0.72, dragIdx=-1, isDragging=false;
+  let isDemo=false;
+  const vid=document.getElementById('vid');
+  const cv=document.getElementById('cv');
+  const ctx=cv.getContext('2d');
+  let W=0,H=0,dpr=1;
+
+  function px(e){
+    const r=cv.getBoundingClientRect();
+    return [(e.clientX-r.left),(e.clientY-r.top)];
+  }
+
+  function bilinear(u,v){
+    const [a,b,c,d]=corners; // TL,TR,BR,BL
+    return [
+      (1-u)*(1-v)*a[0]+u*(1-v)*b[0]+u*v*c[0]+(1-u)*v*d[0],
+      (1-u)*(1-v)*a[1]+u*(1-v)*b[1]+u*v*c[1]+(1-u)*v*d[1]
+    ];
+  }
+
+  function fillQuad(){
+    ctx.beginPath();
+    ctx.moveTo(...corners[0]);ctx.lineTo(...corners[1]);
+    ctx.lineTo(...corners[2]);ctx.lineTo(...corners[3]);
+    ctx.closePath();
+  }
+
+  function drawGridTiles(t){
+    const C=t.cols, R=Math.round(C*1.55);
+    const g=0.018;
+    fillQuad(); ctx.fillStyle=t.grout; ctx.fill();
+    for(let r=0;r<R;r++){
+      for(let c=0;c<C;c++){
+        const u0=(c+g)/C, u1=(c+1-g)/C;
+        const v0=(r+g)/R, v1=(r+1-g)/R;
+        const p0=bilinear(u0,v0),p1=bilinear(u1,v0);
+        const p2=bilinear(u1,v1),p3=bilinear(u0,v1);
+        const ci=Math.abs((c*5+r*7))%t.colors.length;
+        ctx.beginPath();
+        ctx.moveTo(...p0);ctx.lineTo(...p1);ctx.lineTo(...p2);ctx.lineTo(...p3);
+        ctx.closePath();
+        ctx.fillStyle=t.colors[ci];ctx.fill();
+        ctx.strokeStyle='rgba(255,255,255,0.05)';ctx.lineWidth=.5;ctx.stroke();
+      }
+    }
+  }
+
+  function drawMosaicTiles(t){
+    const C=t.cols, R=Math.round(C*1.55);
+    const g=0.01;
+    fillQuad(); ctx.fillStyle=t.grout; ctx.fill();
+    for(let r=0;r<R;r++){
+      for(let c=0;c<C;c++){
+        const u0=(c+g)/C, u1=(c+1-g)/C;
+        const v0=(r+g)/R, v1=(r+1-g)/R;
+        const p0=bilinear(u0,v0),p1=bilinear(u1,v0);
+        const p2=bilinear(u1,v1),p3=bilinear(u0,v1);
+        const ci=Math.abs((c*7+r*13+(c^r)*3))%t.colors.length;
+        ctx.beginPath();
+        ctx.moveTo(...p0);ctx.lineTo(...p1);ctx.lineTo(...p2);ctx.lineTo(...p3);
+        ctx.closePath();ctx.fillStyle=t.colors[ci];ctx.fill();
+      }
+    }
+  }
+
+  function drawHexTiles(t){
+    const C=t.cols, R=Math.round(C*1.3);
+    fillQuad(); ctx.fillStyle=t.grout; ctx.fill();
+    const rU=0.48/C, rV=rU*1.1547;
+    for(let r=0;r<R+1;r++){
+      for(let c=0;c<C+1;c++){
+        const odd=r%2===1;
+        const cu=(c+(odd?.5:0))/C;
+        const cv=(r*.866)/R;
+        if(cu<-rU||cu>1+rU||cv<-rV||cv>1+rV) continue;
+        const pts=[];
+        for(let i=0;i<6;i++){
+          const a=Math.PI/3*i-Math.PI/6;
+          pts.push(bilinear(cu+rU*Math.cos(a)*0.92, cv+rV*Math.sin(a)*0.92));
+        }
+        const ci=Math.abs((c*3+r*7))%t.colors.length;
+        ctx.beginPath();ctx.moveTo(...pts[0]);
+        for(let i=1;i<6;i++) ctx.lineTo(...pts[i]);
+        ctx.closePath();ctx.fillStyle=t.colors[ci];ctx.fill();
+        ctx.strokeStyle='rgba(255,255,255,0.04)';ctx.lineWidth=.5;ctx.stroke();
+      }
+    }
+  }
+
+  function drawHerringTiles(t){
+    fillQuad(); ctx.fillStyle=t.grout; ctx.fill();
+    const bW=1/t.cols, bH=bW*0.45, g=0.006;
+    const totalRows=Math.round(1.6/bH)+4;
+    for(let r=-2;r<totalRows;r++){
+      for(let c=-2;c<t.cols*2+2;c++){
+        const ci=Math.abs((c+r))%t.colors.length;
+        ctx.fillStyle=t.colors[ci];
+        let u0,u1,v0,v1;
+        if((c+r)%2===0){
+          // horizontal brick
+          u0=c*bW*1.0+g; u1=u0+bW*2-g*2;
+          v0=r*bH+g; v1=v0+bH-g*2;
+        } else {
+          // vertical brick
+          u0=c*bW*1.0+bW*0.5+g; u1=u0+bH-g*2;
+          v0=r*bH-bW*0.75+g; v1=v0+bW*2-g*2;
+        }
+        if(u1<0||u0>1||v1<0||v0>1) continue;
+        const p0=bilinear(Math.max(0,u0),Math.max(0,v0));
+        const p1=bilinear(Math.min(1,u1),Math.max(0,v0));
+        const p2=bilinear(Math.min(1,u1),Math.min(1,v1));
+        const p3=bilinear(Math.max(0,u0),Math.min(1,v1));
+        ctx.beginPath();
+        ctx.moveTo(...p0);ctx.lineTo(...p1);ctx.lineTo(...p2);ctx.lineTo(...p3);
+        ctx.closePath();ctx.fill();
+      }
+    }
+  }
+
+  function drawOverlay(){
+    if(corners.length<4) return;
+    const t=TILES[selTile];
+    ctx.save();ctx.globalAlpha=opacity;
+    if(t.layout==='grid')    drawGridTiles(t);
+    else if(t.layout==='mosaic')  drawMosaicTiles(t);
+    else if(t.layout==='hex')     drawHexTiles(t);
+    else if(t.layout==='herring') drawHerringTiles(t);
+    ctx.restore();
+    // outline
+    ctx.save();ctx.globalAlpha=.7;
+    fillQuad();
+    ctx.strokeStyle='rgba(245,166,35,0.6)';ctx.lineWidth=1.5;ctx.stroke();
+    ctx.restore();
+    // corner handles
+    corners.forEach(c=>{
+      ctx.beginPath();ctx.arc(c[0],c[1],7,0,Math.PI*2);
+      ctx.fillStyle='rgba(245,166,35,.85)';ctx.fill();
+      ctx.strokeStyle='rgba(0,0,0,.5)';ctx.lineWidth=1.5;ctx.stroke();
+    });
+  }
+
+  function drawSelecting(){
+    if(!corners.length) return;
+    ctx.save();
+    ctx.strokeStyle='rgba(245,166,35,.75)';ctx.lineWidth=1.5;
+    ctx.setLineDash([5,4]);
+    ctx.beginPath();ctx.moveTo(...corners[0]);
+    for(let i=1;i<corners.length;i++) ctx.lineTo(...corners[i]);
+    ctx.stroke();ctx.setLineDash([]);ctx.restore();
+    corners.forEach((c,i)=>{
+      ctx.beginPath();ctx.arc(c[0],c[1],8,0,Math.PI*2);
+      ctx.fillStyle='rgba(245,166,35,.9)';ctx.fill();
+      ctx.strokeStyle='rgba(0,0,0,.6)';ctx.lineWidth=2;ctx.stroke();
+      ctx.fillStyle='#0c0c0e';ctx.font='bold 9px DM Mono';
+      ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText(i+1,c[0],c[1]);
+    });
+  }
+
+  function render(){
+    ctx.clearRect(0,0,W,H);
+    if(corners.length===4) drawOverlay();
+    else drawSelecting();
+    requestAnimationFrame(render);
+  }
+
+  function computeArea(){
+    if(corners.length<4) return '—';
+    let a=0;
+    for(let i=0;i<4;i++){
+      const j=(i+1)%4;
+      a+=corners[i][0]*corners[j][1]-corners[j][0]*corners[i][1];
+    }
+    const pxArea=Math.abs(a)/2;
+    const vpArea=W*H;
+    return ((pxArea/vpArea)*15).toFixed(1);
+  }
+
+  function updateStatus(){
+    const msgs=['Tap corner 1 of 4','Tap corner 2 of 4','Tap corner 3 of 4','Tap corner 4 of 4'];
+    const txt=document.getElementById('status-txt');
+    const dot=document.getElementById('dot');
+    const an=document.getElementById('area-num');
+    if(corners.length<4){
+      txt.textContent=msgs[corners.length];
+      dot.className='dot'; an.textContent='—';
+    } else {
+      txt.textContent=`${TILES[selTile].name} · drag corners to adjust`;
+      dot.className='dot green'; an.textContent=computeArea();
+    }
+    document.getElementById('guide').style.opacity=corners.length===0?'1':'0';
+  }
+
+  function nearCorner(pos){
+    for(let i=0;i<corners.length;i++){
+      const dx=corners[i][0]-pos[0], dy=corners[i][1]-pos[1];
+      if(Math.sqrt(dx*dx+dy*dy)<35) return i;
+    }
+    return -1;
+  }
+
+  function setupCanvas(){
+    const resize=()=>{
+      const vp=document.getElementById('vp');
+      dpr=window.devicePixelRatio||1;
+      W=vp.clientWidth; H=vp.clientHeight;
+      cv.width=W*dpr; cv.height=H*dpr;
+      cv.style.width=W+'px'; cv.style.height=H+'px';
+      ctx.scale(dpr,dpr);
+    };
+    resize();
+    window.addEventListener('resize',resize);
+  }
+
+  function buildSwatches(){
+    const row=document.getElementById('tiles-row');
+    TILES.forEach((t,i)=>{
+      const div=document.createElement('div');
+      div.className='swatch'+(i===0?' on':'');
+      const c=document.createElement('canvas');
+      c.width=120;c.height=120;
+      const pc=c.getContext('2d');
+      drawSwatch(pc,t,120);
+      const lbl=document.createElement('div');lbl.className='swatch-lbl';lbl.textContent=t.name;
+      div.appendChild(c);div.appendChild(lbl);
+      div.addEventListener('click',()=>{
+        document.querySelectorAll('.swatch').forEach(s=>s.classList.remove('on'));
+        div.classList.add('on'); selTile=i;
+        updateStatus();
+      });
+      row.appendChild(div);
+    });
+  }
+
+  function drawSwatch(pc,t,sz){
+    const C=5,R=6,g=0.025;
+    pc.fillStyle=t.grout;pc.fillRect(0,0,sz,sz);
+    if(t.layout==='grid'||t.layout==='herring'){
+      const tw=sz/C,th=sz/R;
+      for(let r=0;r<R;r++) for(let c=0;c<C;c++){
+        const ci=Math.abs(c*5+r*7)%t.colors.length;
+        pc.fillStyle=t.colors[ci];
+        pc.fillRect(c*tw+1,r*th+1,tw-2,th-2);
+      }
+    } else if(t.layout==='mosaic'){
+      const tw=sz/8,th=sz/8;
+      for(let r=0;r<9;r++) for(let c=0;c<9;c++){
+        const ci=Math.abs(c*7+r*13+(c^r)*3)%t.colors.length;
+        pc.fillStyle=t.colors[ci];pc.fillRect(c*tw+.5,r*th+.5,tw-1,th-1);
+      }
+    } else if(t.layout==='hex'){
+      const rr=sz*.11;
+      for(let r=-1;r<7;r++) for(let c=-1;c<6;c++){
+        const odd=r%2===1;
+        const cx=(c+(odd?.5:0))*(rr*1.75);
+        const cy=r*(rr*1.52);
+        const ci=Math.abs(c*3+r*7)%t.colors.length;
+        pc.fillStyle=t.colors[ci];
+        pc.beginPath();
+        for(let i=0;i<6;i++){const a=Math.PI/3*i-Math.PI/6;pc.lineTo(cx+rr*.92*Math.cos(a),cy+rr*.92*Math.sin(a));}
+        pc.closePath();pc.fill();
+      }
+    }
+  }
+
+  async function startCamera(){
+    const nocam=document.getElementById('nocam');
+    try{
+      const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280}},audio:false});
+      vid.srcObject=stream;
+      nocam.style.display='none';
+    } catch(e){
+      try{
+        const stream=await navigator.mediaDevices.getUserMedia({video:true,audio:false});
+        vid.srcObject=stream;
+        nocam.style.display='none';
+      } catch(e2){ nocam.style.display='flex'; }
+    }
+  }
+
+  function demoMode(){
+    isDemo=true;
+    document.getElementById('nocam').style.display='none';
+    // Show a neutral dark floor bg
+    vid.style.background='#2a2420';
+    document.getElementById('guide').querySelector('p').textContent='Tap 4 corners on screen to define a floor area';
+  }
+
+  function toggleCamera(){
+    if(vid.srcObject){
+      vid.srcObject.getTracks().forEach(t=>t.stop());
+      vid.srcObject=null;
+      document.getElementById('nocam').style.display='flex';
+    } else { startCamera(); }
+  }
+
+  function reset(){ corners=[]; updateStatus(); }
+  function undo(){ if(corners.length) corners.pop(); updateStatus(); }
+
+  function onDown(e){
+    e.preventDefault();
+    const pos=px(e);
+    if(corners.length===4){
+      const ni=nearCorner(pos);
+      if(ni!==-1){ isDragging=true; dragIdx=ni; cv.setPointerCapture(e.pointerId); }
+      return;
+    }
+    corners.push(pos); updateStatus();
+  }
+  function onMove(e){
+    if(!isDragging) return;
+    corners[dragIdx]=px(e);
+    document.getElementById('area-num').textContent=computeArea();
+  }
+  function onUp(){ isDragging=false; dragIdx=-1; }
+
+  return {
+    init(){
+      setupCanvas(); buildSwatches();
+      cv.addEventListener('pointerdown',onDown);
+      cv.addEventListener('pointermove',onMove);
+      cv.addEventListener('pointerup',onUp);
+      document.getElementById('opSlider').addEventListener('input',e=>{
+        opacity=e.target.value/100;
+        document.getElementById('opVal').textContent=e.target.value+'%';
+      });
+      startCamera();
+      render(); updateStatus();
+    },
+    startCamera, toggleCamera, demoMode, reset, undo
+  };
+})();
+
+document.addEventListener('DOMContentLoaded',()=>App.init());
+</script>
+</body>
+</html>

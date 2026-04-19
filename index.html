@@ -41,6 +41,9 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 /* ── Status pill ── */
 #status{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);z-index:10;white-space:nowrap}
 #status-inner{display:inline-flex;align-items:center;gap:7px;background:var(--surface);border:1px solid var(--border);backdrop-filter:blur(12px);border-radius:100px;padding:7px 14px;font-size:11px}
+#diagnostic{margin-top:8px;text-align:center;font-size:10px;color:var(--muted);line-height:1.4}
+#diagnostic .diag-label{color:var(--text);margin-right:4px}
+#diag-support{color:var(--amber);font-weight:700}
 .dot{width:6px;height:6px;border-radius:50%;background:var(--amber);animation:pulse 1.8s ease-in-out infinite;flex-shrink:0}
 @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.75)}}
 .dot.green{background:var(--green);animation:none}
@@ -105,13 +108,17 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
     <div id="status">
       <div id="status-inner">
         <div class="dot" id="dot"></div>
-        <span id="status-txt">Tap 4 corners to mark floor</span>
+        <span id="status-txt">Start AR to begin</span>
+      </div>
+      <div id="diagnostic">
+        <span class="diag-label">WebXR status:</span>
+        <span id="diag-support">checking...</span>
       </div>
     </div>
 
     <div id="nocam">
       <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
-        <rect x="4" y="14" widClick START AR to beginstroke="#f0ece6" stroke-width="2"/>
+        <rect x="4" y="14" width="48" height="36" rx="6" stroke="#f0ece6" stroke-width="2"/>
         <circle cx="28" cy="32" r="10" stroke="#f0ece6" stroke-width="2"/>
         <circle cx="28" cy="32" r="4" fill="#f0ece6"/>
         <path d="M20 14l4-8h8l4 8" stroke="#f0ece6" stroke-width="2"/>
@@ -126,8 +133,8 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
     <div class="panel-row">
       <span class="panel-title">Tile Collection</span>
       <div class="acts">
-        <button class="btn danger" onclick="App.reset()" title="Reset selection">✕ Reset</button>
-        <button class="btn" onclick="App.undo()" title="Remove lClear all tiles">✕ Clear
+        <button class="btn danger" onclick="App.reset()" title="Clear all tiles">✕ Clear</button>
+      </div>
     </div>
     <div id="tiles-row"></div>
     <div class="ctrl-row">
@@ -167,6 +174,8 @@ const App = (() => {
     buildSwatches();
     setupBabylon();
     setupUI();
+    const supported = await checkARSupport();
+    setDiagnostic(supported ? 'supported' : 'not supported');
   }
 
   function setupBabylon() {
@@ -202,8 +211,15 @@ const App = (() => {
     }
   }
 
+  function setDiagnostic(message) {
+    const diag = document.getElementById('diag-support');
+    if (diag) diag.textContent = message;
+  }
+
   async function startAR() {
+    setDiagnostic('checking...');
     const supported = await checkARSupport();
+    setDiagnostic(supported ? 'supported' : 'not supported');
     if (!supported) {
       alert('WebXR AR is not supported on this device/browser. Make sure Chrome is updated, WebXR flags are enabled, and ARCore is installed.');
       return;
@@ -238,6 +254,7 @@ const App = (() => {
       }
 
       isARStarted = true;
+      setDiagnostic('in AR');
       updateStatus();
 
       scene.onPointerObservable.add((pointerInfo) => {

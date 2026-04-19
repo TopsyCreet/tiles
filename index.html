@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>TileViz AR</title>
+  <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
+  <style>
+    body { margin: 0; overflow: hidden; font-family: Inter, system-ui, sans-serif; background: #060608; color: #f4f1ec; }
+    #ui { position: absolute; inset: 0; pointer-events: none; z-index: 10; display: flex; flex-direction: column; justify-content: space-between; }
+    .topbar { display: flex; align-items: center; justify-content: space-between; padding: 18px 18px 0; pointer-events: none; }
+    .brand { font-size: 1rem; font-weight: 700; letter-spacing: .2em; text-transform: uppercase; color: #f5a623; }
+    .status { font-size: .85rem; color: #c7c2b9; text-align: right; line-height: 1.4; }
+    .panel { pointer-events: auto; margin: 0 18px 18px; padding: 16px; background: rgba(6,6,8,.82); border: 1px solid rgba(255,255,255,.08); border-radius: 18px; backdrop-filter: blur(16px); }
+    .panel > * + * { margin-top: 12px; }
+    .btn { width: 100%; padding: 12px 14px; border: none; border-radius: 12px; background: #f5a623; color: #09090b; font-weight: 700; font-size: .95rem; cursor: pointer; }
+    .btn:disabled { opacity: .55; cursor: not-allowed; }
+    .note { font-size: .82rem; color: #b6b0a4; line-height: 1.6; }
+    .swatch { border-radius: 14px; min-height: 88px; display: grid; place-items: center; cursor: pointer; border: 1px solid rgba(255,255,255,.08); transition: transform .18s ease, border-color .18s ease; }
+    .swatch.selected { border-color: #f5a623; transform: scale(1.02); }
+    .swatch-label { margin-top: 8px; font-size: .75rem; text-align: center; color: #d4cfbe; }
+    .swatch-sample { width: 64px; height: 64px; border-radius: 12px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.06); }
+    #tile-picker { display: grid; grid-template-columns: repeat(auto-fit, minmax(88px, 1fr)); gap: 10px; }
+  </style>
+</head>
+<body>
+  <div id="ui">
+    <div class="topbar">
+      <div class="brand">TileViz AR</div>
+      <div class="status" id="support-status">Checking WebXR support…</div>
+    </div>
+    <div class="panel">
+      <button class="btn" id="enter-ar">START AR</button>
+      <div class="note">Tap the AR button and then tap on the floor to place tile previews. This demo uses A-Frame's <code>ar-hit-test</code> floor detection.</div>
+    </div>
+    <div class="panel">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <strong style="font-size:.95rem;">Select tile style</strong>
+        <span id="current-tile" style="font-size:.82rem;color:#c7c2b9;">Carrara Marble</span>
+      </div>
+      <div id="tile-picker"></div>
+    </div>
+  </div>
+
+  <a-scene id="scene" embedded webxr="optionalFeatures: hit-test;" vr-mode-ui="enabled: false" renderer="colorManagement: true; antialias: true;" background="color: #000000">
+    <a-entity light="type: ambient; intensity: 0.9"></a-entity>
+    <a-entity light="type: directional; intensity: 0.8" position="0 4 0"></a-entity>
+    <a-camera position="0 1.6 0"></a-camera>
+
+    <a-entity id="tile-reticle" visible="false" geometry="primitive: ring; radiusInner: 0.08; radiusOuter: 0.12; thetaSegments: 32" material="color: #f5a623; shader: flat; opacity: 0.92" rotation="-90 0 0"></a-entity>
+    <a-entity id="tile-container"></a-entity>
+    <a-entity ar-hit-test="target: #tile-reticle;"></a-entity>
+  </a-scene>
+
+  <script>
+    const TILES = [
+      {name: 'Carrara Marble', color: '#f8f4ef', accent: '#cfc7bd'},
+      {name: 'Travertine', color: '#d4c4a8', accent: '#a8947a'},
+      {name: 'Onyx Black', color: '#1c1c1e', accent: '#56565c'},
+      {name: 'Slate Grey', color: '#6b7280', accent: '#4b5563'},
+      {name: 'Terracotta', color: '#c06a40', accent: '#7a3010'},
+      {name: 'Sage Green', color: '#166534', accent: '#052e16'}
+    ];
+
+    const tilePicker = document.getElementById('tile-picker');
+    const currentTileLabel = document.getElementById('current-tile');
+    let selectedIndex = 0;
+
+    function buildSwatches() {
+      TILES.forEach((tile, index) => {
+        const card = document.createElement('div');
+        card.className = 'swatch' + (index === selectedIndex ? ' selected' : '');
+        card.innerHTML = `
+          <div class="swatch-sample" style="background: linear-gradient(135deg, ${tile.color} 0%, ${tile.accent} 70%, ${tile.color} 100%);"></div>
+          <div class="swatch-label">${tile.name}</div>
+        `;
+        card.addEventListener('click', () => {
+          selectedIndex = index;
+          currentTileLabel.textContent = tile.name;
+          document.querySelectorAll('.swatch').forEach((element, i) => element.classList.toggle('selected', i === index));
+        });
+        tilePicker.appendChild(card);
+      });
+    }
+
+    function setSupportStatus(text, good = true) {
+      const status = document.getElementById('support-status');
+      status.textContent = text;
+      status.style.color = good ? '#a3ff96' : '#f5a623';
+    }
+
+    async function checkWebXR() {
+      const button = document.getElementById('enter-ar');
+      if (!navigator.xr) {
+        setSupportStatus('WebXR API not available');
+        button.disabled = true;
+        return;
+      }
+      try {
+        const supported = await navigator.xr.isSessionSupported('immersive-ar');
+        if (supported) {
+          setSupportStatus('WebXR immersive-ar supported');
+          button.disabled = false;
+        } else {
+          setSupportStatus('WebXR immersive-ar unsupported', false);
+          button.disabled = true;
+        }
+      } catch (error) {
+        setSupportStatus('WebXR support check failed', false);
+        button.disabled = true;
+        console.warn('WebXR check error', error);
+      }
+    }
+
+    AFRAME.registerComponent('tile-placer', {
+      init() {
+        this.reticle = document.querySelector('#tile-reticle');
+        this.container = document.querySelector('#tile-container');
+        const scene = this.el.sceneEl;
+        scene.addEventListener('ar-hit-test-achieved', () => {
+          this.reticle.setAttribute('visible', true);
+        });
+        scene.addEventListener('ar-hit-test-select', () => {
+          this.placeTile();
+        });
+      },
+      placeTile() {
+        const reticle = document.querySelector('#tile-reticle');
+        if (!reticle) return;
+        const position = reticle.getAttribute('position');
+        const tileDef = TILES[selectedIndex];
+        const tile = document.createElement('a-plane');
+        tile.setAttribute('width', 0.28);
+        tile.setAttribute('height', 0.28);
+        tile.setAttribute('rotation', '-90 0 0');
+        tile.setAttribute('position', `${position.x} ${position.y} ${position.z}`);
+        tile.setAttribute('material', `color: ${tileDef.color}; side: double; opacity: 0.92; shader: flat;`);
+        tile.setAttribute('class', 'placed-tile');
+        const edge = document.createElement('a-ring');
+        edge.setAttribute('radius-inner', 0.14);
+        edge.setAttribute('radius-outer', 0.145);
+        edge.setAttribute('rotation', '-90 0 0');
+        edge.setAttribute('position', `${position.x} ${position.y} ${position.z}`);
+        edge.setAttribute('material', `color: ${tileDef.accent}; shader: flat; opacity: 0.72;`);
+        edge.setAttribute('side', 'double');
+        this.container.appendChild(tile);
+        this.container.appendChild(edge);
+      }
+    });
+
+    document.getElementById('enter-ar').addEventListener('click', () => {
+      const scene = document.querySelector('a-scene');
+      if (scene && scene.enterVR) {
+        scene.enterVR();
+      }
+    });
+
+    window.addEventListener('DOMContentLoaded', () => {
+      buildSwatches();
+      checkWebXR();
+      const scene = document.querySelector('a-scene');
+      if (scene) {
+        scene.setAttribute('tile-placer', '');
+      }
+    });
+  </script>
+</body>
+</html>

@@ -190,32 +190,49 @@ const App = (() => {
     });
   }
 
+  async function checkARSupport() {
+    if (!navigator.xr) return false;
+    try {
+      return await navigator.xr.isSessionSupported('immersive-ar');
+    } catch (e) {
+      console.warn('isSessionSupported failed', e);
+      return false;
+    }
+  }
+
   async function startAR() {
-    if (!navigator.xr) {
-      alert('WebXR not supported');
+    const supported = await checkARSupport();
+    if (!supported) {
+      alert('WebXR AR is not supported on this device/browser. Use Chrome on Android with ARCore and HTTPS.');
       return;
     }
 
     try {
-      const session = await navigator.xr.requestSession('immersive-ar', {
-        requiredFeatures: ['hit-test'],
-        optionalFeatures: ['dom-overlay'],
-        domOverlay: { root: document.body }
+      xrHelper = await BABYLON.WebXRDefaultExperience.CreateAsync(scene, {
+        optionalFeatures: ['hit-test', 'dom-overlay'],
+        disableDefaultUI: true
       });
 
-      xrHelper = await BABYLON.WebXRExperienceHelper.CreateAsync(scene);
-      await xrHelper.enterXRAsync('immersive-ar', 'local-floor', session);
+      await xrHelper.baseExperience.enterXRAsync('immersive-ar', 'local-floor');
 
-      // Request hit test source
-      hitTestSource = await session.requestHitTestSource({
-        space: xrHelper.baseExperience.referenceSpace,
-        entityTypes: ['plane']
-      });
+      const session = xrHelper.baseExperience.sessionManager.session;
+      if (session) {
+        try {
+          hitTestSource = await session.requestHitTestSource({
+            space: xrHelper.baseExperience.referenceSpace,
+            entityTypes: ['plane']
+          });
+        } catch (planeError) {
+          console.warn('Plane hit test not available, falling back to standard hit test', planeError);
+          hitTestSource = await session.requestHitTestSource({
+            space: xrHelper.baseExperience.referenceSpace
+          });
+        }
+      }
 
       isARStarted = true;
       updateStatus();
 
-      // Setup tap handling
       scene.onPointerObservable.add((pointerInfo) => {
         if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERDOWN) {
           placeTileAtHit();
@@ -224,7 +241,7 @@ const App = (() => {
 
     } catch (error) {
       console.error('Failed to start AR:', error);
-      alert('Failed to start AR session. Make sure your browser supports WebXR.');
+      alert('Failed to start AR session. Make sure your browser supports WebXR and that this page is loaded over HTTPS.');
     }
   }
 
